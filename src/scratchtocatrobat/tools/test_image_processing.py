@@ -27,6 +27,7 @@ import java.awt.Font
 from java.awt import Color
 import java.awt.image.BufferedImage
 import imghdr
+from test._mock_backport import _allowed_names
 
 class ImageProcessingTest(common_testing.BaseTestCase):
 
@@ -56,30 +57,122 @@ class ImageProcessingTest(common_testing.BaseTestCase):
 
     def test_can_create_font(self):
         for font_name in self._allowed_font_names:
-            font = img_proc.create_font(font_name, 14.0, bold=False, italic=False)
-            assert isinstance(font, java.awt.Font)
+            for (bold, italic) in [(False, False), (False, True), (True, False), (True, True)]:
+                font = img_proc.create_font(font_name, 14.0, )
+                assert isinstance(font, java.awt.Font)
+                print(font.getFontName() )  #results to error
+                assert font.getSize() == 14
 
+    
+              
+        
+        
+        
+        
     def test_can_add_text_to_editable_image(self):
         dummy_png = self.img_proc_pngfile_paths()[0]
-        buffered_image = img_proc.read_editable_image_from_disk(dummy_png)
-        assert isinstance(buffered_image, java.awt.image.BufferedImage)
-        font = img_proc.create_font(self._allowed_font_names[0], 14.0, bold=False, italic=False)
-        # check whether the left-outline of letter "H" in "Hello world" is NOT present in the image!
-        for i in range(0, 8):
-            rgb = buffered_image.getRGB(11, i)
-            red = rgb >> 16 & int("0x000000FF", 16)
-            green = rgb >> 8 & int("0x000000FF", 16)
-            blue = rgb & int("0x000000FF", 16)
-            assert red == 0 and green == 0 and blue == 0
-        buffered_image = img_proc.add_text_to_image(buffered_image, "Hello world!", font, Color.BLUE, 10.0, 10.0)
-        #buffered_image = img_proc.add_text_to_image(buffered_image, "Franz ist hier!?", font, Color.BLUE,10.0, 2.0)
-        # the left-outline of letter "H" in "Hello world" must NOW appear in the image!
-        for i in range(0, 8):
-            rgb = buffered_image.getRGB(11, i)
-            red = rgb >> 16 & int("0x000000FF", 16)
-            green = rgb >> 8 & int("0x000000FF", 16)
-            blue = rgb & int("0x000000FF", 16)
-            #assert red == 255 and green == 0 and blue == 0
+        #buffered_image = img_proc.read_editable_image_from_disk(dummy_png)
+        #assert isinstance(buffered_image, java.awt.image.BufferedImage)
+        for font_name in self._allowed_font_names:
+            font = img_proc.create_font(font_name, 14.0, bold=False, italic=False)
+            # check whether the left-outline of letter "H" in "Hello world" is NOT present in the image!
+            test_colors = { Color.BLUE: (0, 0, 255), Color.RED: (255, 0, 0), Color.WHITE: (255, 255, 255), Color.BLACK: (0,0,0) }
+            for (color, value) in test_colors.iteritems():
+                buffered_image = img_proc.read_editable_image_from_disk(dummy_png)
+                assert isinstance(buffered_image, java.awt.image.BufferedImage)
+                #test1 8 pixel down
+                for i in range(0, 8):
+                    rgb = buffered_image.getRGB(11, i)               
+                    red = rgb >> 16 & int("0x000000FF", 16)
+                    green = rgb >> 8 & int("0x000000FF", 16)
+                    blue = rgb & int("0x000000FF", 16)
+                    alpha = (rgb>>24) & 0xff;
+                    assert red == 0 and green == 0 and blue == 0 and alpha == 0
+                buffered_image = img_proc.add_text_to_image(buffered_image, "Hello world!", font, color, 10.0, 10.0)
+                #buffered_image = img_proc.add_text_to_image(buffered_image, "Franz ist hier!?", font, Color.BLUE,10.0, 2.0)
+                # the left-outline of letter "H" in "Hello world" must NOW appear in the image!
+                for i in range(0, 8):
+                    rgb = buffered_image.getRGB(11, i)
+                    red = rgb >> 16 & int("0x000000FF", 16)
+                    green = rgb >> 8 & int("0x000000FF", 16)
+                    blue = rgb & int("0x000000FF", 16)
+                    alpha = (rgb>>24) & 0xff;
+                   
+                    if font_name == self._allowed_font_names[3]: #helvetica
+                        assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
+                    if font_name == self._allowed_font_names[0]: #marker
+                        if i > 0 and i < 8:
+                            assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
+                    if font_name == self._allowed_font_names[1]: #scratch
+                        if i == 1:
+                            assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
+                        if i == 6:
+                            assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
+                        if i == 7:
+                            assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
+                    if font_name == self._allowed_font_names[2]: #gloria
+                        if i == 6:
+                            assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
+                        if i == 7:
+                            assert red == value[0] and green == value[1] and blue == value[2]and alpha == 255
+                    if font_name == self._allowed_font_names[4]: #donegal
+                        if i == 1:
+                            assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
+                    if font_name == self._allowed_font_names[5]: #mystery
+                        assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
+                        
+                #test2 second letter 10 pixel down
+                
+                buffered_image = img_proc.read_editable_image_from_disk(dummy_png)
+                assert isinstance(buffered_image, java.awt.image.BufferedImage)
+                for i in range(20, 29):
+                    rgb = buffered_image.getRGB(i, 3)               
+                    red = rgb >> 16 & int("0x000000FF", 16)
+                    green = rgb >> 8 & int("0x000000FF", 16)
+                    blue = rgb & int("0x000000FF", 16)
+                    alpha = (rgb>>24) & 0xff;
+                    assert red == 0 and green == 0 and blue == 0 and alpha == 0
+                buffered_image = img_proc.add_text_to_image(buffered_image, "Hello world!", font, color, 10.0, 10.0)
+                #buffered_image = img_proc.add_text_to_image(buffered_image, "Franz ist hier!?", font, Color.BLUE,10.0, 2.0)
+                # the left-outline of letter "H" in "Hello world" must NOW appear in the image!
+                for i in range(20, 29):
+                    rgb = buffered_image.getRGB(i, 3)
+                    red = rgb >> 16 & int("0x000000FF", 16)
+                    green = rgb >> 8 & int("0x000000FF", 16)
+                    blue = rgb & int("0x000000FF", 16)
+                    alpha = (rgb>>24) & 0xff;
+                    if font_name == self._allowed_font_names[3]: #helvetica
+                        if i == 22 or i == 23 or i == 24 or i == 25:
+                            assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
+                    if font_name == self._allowed_font_names[0]: #marker
+                        if (i >= 21 and i  <= 26) or i == 29 or i == 30:
+                            assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
+                    if font_name == self._allowed_font_names[1]: #scratch
+                        if (i >= 17 and i <= 21):
+                            assert red == 0 and green == 0 and blue == 0 and alpha == 0
+                    if font_name == self._allowed_font_names[2]: #gloria
+                        if i == 23 or i == 24 or i == 26:
+                            assert red == value[0] and green == value[1] and blue == value[2]and alpha == 255
+                    if font_name == self._allowed_font_names[4]: #donegal
+                        if i >=21 and i <= 26:
+                            assert red == 0 and green == 0 and blue == 0 and alpha == 0
+                    if font_name == self._allowed_font_names[5]: #mystery
+                        if i >=20 and i <= 22:
+                            assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
+                
+
+                   
+
+                        
+                    
+
+                            
+
+                            
+                            
+                        
+
+                        
 
     def test_can_save_editable_image_as_png_to_disk(self):
         dummy_png = self.img_proc_pngfile_paths()[0]
@@ -108,9 +201,9 @@ class ImageProcessingTest(common_testing.BaseTestCase):
             green = rgb >> 8 & int("0x000000FF", 16)
             blue = rgb & int("0x000000FF", 16)
             assert red == 0 and green == 0 and blue == 0
-        buffered_image = img_proc.add_text_to_image(buffered_image, "Hello world!", mystery_font, Color.RED, 10.0, 10.0)
-        buffered_image = img_proc.add_text_to_image(buffered_image, "Franz ist hier!?", marker_font, Color.BLUE,10.0, 20.0)
-        buffered_image = img_proc.add_text_to_image(buffered_image, "iloveKF", donegal_font, Color.GREEN,10.0, 32.0)
+        buffered_image = img_proc.add_text_to_image(buffered_image, "Hello world!", marker_font, Color.BLACK, 10.0, 10.0)
+        #buffered_image = img_proc.add_text_to_image(buffered_image, "Franz ist hier!?", marker_font, Color.BLUE,10.0, 20.0)
+        #buffered_image = img_proc.add_text_to_image(buffered_image, "iloveKF", donegal_font, Color.GREEN,10.0, 32.0)
 
 
         # the left-outline of letter "H" in "Hello world" must NOW appear in the image!
