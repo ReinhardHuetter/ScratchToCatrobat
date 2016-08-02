@@ -62,9 +62,19 @@ class ImageProcessingTest(common_testing.BaseTestCase):
                 assert isinstance(font, java.awt.Font)
                 print(font.getFontName() )  #results to error
                 assert font.getSize() == 14
+                
 
     
               
+        
+        
+    def test_check_stretched_text_on_image(self):   
+        dummy_png = self.img_proc_pngfile_paths()[0]
+        buffered_image = img_proc.read_editable_image_from_disk(dummy_png)
+        font = img_proc.create_font(self._allowed_font_names[0], 14.0, bold=False, italic=False)
+        textbox_width = 10
+        textbox_height = 10
+        buffered_image = img_proc.add_text_to_image(buffered_image, "this is a stretched text", font, Color.BLUE, 10.0, 10.0)
         
         
         
@@ -86,7 +96,7 @@ class ImageProcessingTest(common_testing.BaseTestCase):
                     red = rgb >> 16 & int("0x000000FF", 16)
                     green = rgb >> 8 & int("0x000000FF", 16)
                     blue = rgb & int("0x000000FF", 16)
-                    alpha = (rgb>>24) & 0xff;
+                    alpha = (rgb>>24) & 0xff
                     assert red == 0 and green == 0 and blue == 0 and alpha == 0
                 buffered_image = img_proc.add_text_to_image(buffered_image, "Hello world!", font, color, 10.0, 10.0)
                 #buffered_image = img_proc.add_text_to_image(buffered_image, "Franz ist hier!?", font, Color.BLUE,10.0, 2.0)
@@ -104,17 +114,11 @@ class ImageProcessingTest(common_testing.BaseTestCase):
                         if i > 0 and i < 8:
                             assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
                     if font_name == self._allowed_font_names[1]: #scratch
-                        if i == 1:
-                            assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
-                        if i == 6:
-                            assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
-                        if i == 7:
+                        if i == 1 or i == 6 or i == 7: 
                             assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
                     if font_name == self._allowed_font_names[2]: #gloria
-                        if i == 6:
+                        if i == 6 or i == 7:
                             assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
-                        if i == 7:
-                            assert red == value[0] and green == value[1] and blue == value[2]and alpha == 255
                     if font_name == self._allowed_font_names[4]: #donegal
                         if i == 1:
                             assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
@@ -122,7 +126,6 @@ class ImageProcessingTest(common_testing.BaseTestCase):
                         assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
                         
                 #test2 second letter 10 pixel down
-                
                 buffered_image = img_proc.read_editable_image_from_disk(dummy_png)
                 assert isinstance(buffered_image, java.awt.image.BufferedImage)
                 for i in range(20, 29):
@@ -130,11 +133,11 @@ class ImageProcessingTest(common_testing.BaseTestCase):
                     red = rgb >> 16 & int("0x000000FF", 16)
                     green = rgb >> 8 & int("0x000000FF", 16)
                     blue = rgb & int("0x000000FF", 16)
-                    alpha = (rgb>>24) & 0xff;
+                    alpha = (rgb>>24) & 0xff
                     assert red == 0 and green == 0 and blue == 0 and alpha == 0
                 buffered_image = img_proc.add_text_to_image(buffered_image, "Hello world!", font, color, 10.0, 10.0)
                 #buffered_image = img_proc.add_text_to_image(buffered_image, "Franz ist hier!?", font, Color.BLUE,10.0, 2.0)
-                # the left-outline of letter "H" in "Hello world" must NOW appear in the image!
+                #some pixels in x space line must appear now
                 for i in range(20, 29):
                     rgb = buffered_image.getRGB(i, 3)
                     red = rgb >> 16 & int("0x000000FF", 16)
@@ -159,6 +162,48 @@ class ImageProcessingTest(common_testing.BaseTestCase):
                     if font_name == self._allowed_font_names[5]: #mystery
                         if i >=20 and i <= 22:
                             assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
+                            
+                            
+                            
+                            
+                            
+                #test3 first whole line test
+                buffered_image = img_proc.read_editable_image_from_disk(dummy_png)
+                assert isinstance(buffered_image, java.awt.image.BufferedImage)
+                for i in range(10, 94):
+                    rgb = buffered_image.getRGB(i, 0)               
+                    red = rgb >> 16 & int("0x000000FF", 16)
+                    green = rgb >> 8 & int("0x000000FF", 16)
+                    blue = rgb & int("0x000000FF", 16)
+                    alpha = (rgb>>24) & 0xff
+                    assert red == 0 and green == 0 and blue == 0 and alpha == 0
+                buffered_image = img_proc.add_text_to_image(buffered_image, "Hello world!", font, color, 10.0, 10.0)
+                #buffered_image = img_proc.add_text_to_image(buffered_image, "Franz ist hier!?", font, Color.BLUE,10.0, 2.0)
+                #some pixels in x space line must appear now
+                for i in range(10, 94):
+                    rgb = buffered_image.getRGB(i, 0)
+                    red = rgb >> 16 & int("0x000000FF", 16)
+                    green = rgb >> 8 & int("0x000000FF", 16)
+                    blue = rgb & int("0x000000FF", 16)
+                    alpha = (rgb>>24) & 0xff
+                    if font_name == self._allowed_font_names[3]: #helvetica
+                        if i == 11 or i == 18 or i == 29 or i == 32 or i == 70 or i == 78 or i == 82:
+                            assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
+                    if font_name == self._allowed_font_names[0]: #marker
+                        if i == 12 or i == 17 or i == 18:
+                            assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
+                    if font_name == self._allowed_font_names[1]: #scratch
+                        if i == 14 or i == 15 or i == 16 or i == 17:
+                            assert red ==value[0] and green == value[1] and blue == value[2] and alpha == 255
+                    if font_name == self._allowed_font_names[2]: #gloria
+                        if i == 12 or i == 19 or i == 30 or i ==34 or i == 79 or i == 88 or i == 92 or i == 93:
+                            assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
+                    if font_name == self._allowed_font_names[4]: #donegal
+                        if i== 26 or i == 27 or i == 29 or i == 30 or i == 64 or i == 65 or i == 72:
+                            assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
+                    if font_name == self._allowed_font_names[5]: #mystery
+                        if (i >=10  and i <= 12)  or (i >= 15 and i <= 17) or i == 25 or i == 28 or i == 66 or i == 73 or i == 76 or i == 77:
+                            assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
                 
 
                    
@@ -170,7 +215,8 @@ class ImageProcessingTest(common_testing.BaseTestCase):
 
                             
                             
-                        
+    
+                         
 
                         
 
@@ -200,8 +246,9 @@ class ImageProcessingTest(common_testing.BaseTestCase):
             red = rgb >> 16 & int("0x000000FF", 16)
             green = rgb >> 8 & int("0x000000FF", 16)
             blue = rgb & int("0x000000FF", 16)
-            assert red == 0 and green == 0 and blue == 0
-        buffered_image = img_proc.add_text_to_image(buffered_image, "Hello world!", marker_font, Color.BLACK, 10.0, 10.0)
+            alpha = (rgb>>24) & 0xff
+            assert red == 0 and green == 0 and blue == 0 and alpha == 0
+        buffered_image = img_proc.add_text_to_image(buffered_image, "Hello world!", helvetica_font, Color.BLUE, 10.0, 10.0)
         #buffered_image = img_proc.add_text_to_image(buffered_image, "Franz ist hier!?", marker_font, Color.BLUE,10.0, 20.0)
         #buffered_image = img_proc.add_text_to_image(buffered_image, "iloveKF", donegal_font, Color.GREEN,10.0, 32.0)
 
@@ -212,7 +259,8 @@ class ImageProcessingTest(common_testing.BaseTestCase):
             red = rgb >> 16 & int("0x000000FF", 16)
             green = rgb >> 8 & int("0x000000FF", 16)
             blue = rgb & int("0x000000FF", 16)
-            #assert red == 255 and green == 0 and blue == 0
+            alpha = (rgb>>24) & 0xff
+            assert red == 0 and green == 0 and blue == 255 and alpha ==255
         output_path = self.img_proc_pngfile_output_path("test.png")
         try:
             img_proc.save_editable_image_as_png_to_disk(buffered_image, output_path, overwrite=True)
@@ -226,7 +274,8 @@ class ImageProcessingTest(common_testing.BaseTestCase):
                 red = rgb >> 16 & int("0x000000FF", 16)
                 green = rgb >> 8 & int("0x000000FF", 16)
                 blue = rgb & int("0x000000FF", 16)
-                #assert red == 255 and green == 0 and blue == 0
+                alpha = (rgb>>24) & 0xff;
+                assert red == 0 and green == 0 and blue == 255 and alpha == 255
         except Exception, e:
             raise e
        # finally:
