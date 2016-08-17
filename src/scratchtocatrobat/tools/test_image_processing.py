@@ -68,18 +68,13 @@ class ImageProcessingTest(common_testing.BaseTestCase):
               
         
         
-    def test_check_stretched_text_on_image(self):   
-        dummy_png = self.img_proc_pngfile_paths()[0]
-        buffered_image = img_proc.read_editable_image_from_disk(dummy_png)
-        font = img_proc.create_font(self._allowed_font_names[0], 14.0, bold=False, italic=False)
-        textbox_width = 10
-        textbox_height = 10
-        buffered_image = img_proc.add_text_to_image(buffered_image, "this is a stretched text", font, Color.BLUE, 10.0, 10.0)
+    
         
         
         
         
     def test_can_add_text_to_editable_image(self):
+        
         dummy_png = self.img_proc_pngfile_paths()[0]
         #buffered_image = img_proc.read_editable_image_from_disk(dummy_png)
         #assert isinstance(buffered_image, java.awt.image.BufferedImage)
@@ -215,7 +210,41 @@ class ImageProcessingTest(common_testing.BaseTestCase):
 
                             
                             
-    
+    def test_can_save_stretched_editable_image_as_png_to_disk(self):
+        dummy_png = self.img_proc_pngfile_paths()[0]
+        buffered_image = img_proc.read_editable_image_from_disk(dummy_png)
+        assert isinstance(buffered_image, java.awt.image.BufferedImage)
+        font = img_proc.create_font(self._allowed_font_names[0], 14.0, bold=False, italic=False)
+        helvetica_font_value = 3
+        helvetica_font =  img_proc.create_font(self._allowed_font_names[helvetica_font_value], 14.0, bold=False, italic=False)
+      
+        
+        # check whether the left-outline of letter "H" in "Hello world" is NOT present in the image!
+        for i in range(0, 8):
+            rgb = buffered_image.getRGB(11, i)
+            red = rgb >> 16 & int("0x000000FF", 16)
+            green = rgb >> 8 & int("0x000000FF", 16)
+            blue = rgb & int("0x000000FF", 16)
+            alpha = (rgb>>24) & 0xff
+            assert red == 0 and green == 0 and blue == 0 and alpha == 0
+        buffered_image = img_proc.add_text_to_image(buffered_image, "Hello world!", helvetica_font, Color.BLUE, 10.0, 10.0, 10.0, 120, 30)
+        #buffered_image = img_proc.add_text_to_image(buffered_image, "Franz ist hier!?", marker_font, Color.BLUE,10.0, 20.0)
+        #buffered_image = img_proc.add_text_to_image(buffered_image, "iloveKF", donegal_font, Color.GREEN,10.0, 32.0)
+
+        #TODO make new Test for stretched pixels
+        output_path = self.img_proc_pngfile_output_path("test_stretched.png")
+        try:
+            img_proc.save_editable_image_as_png_to_disk(buffered_image, output_path, overwrite=True)
+            assert os.path.isfile(output_path)
+            assert imghdr.what(output_path) == 'png'
+            # Reload the image from disk now and check if left-outline of letter "H" is still present!
+            new_buffered_image = img_proc.read_editable_image_from_disk(output_path)
+            assert isinstance(new_buffered_image, java.awt.image.BufferedImage)
+            #TODO make the same check as before you reload the image from disk
+        except Exception, e:
+            raise e
+       # finally:
+            #os.remove(output_path) # finally remove the image
                          
 
                         

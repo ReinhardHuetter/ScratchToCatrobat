@@ -21,11 +21,18 @@
 
 import logging
 import os
+
+from java.awt import *
+from javax.swing import *
+
 from java.io import File
 from javax.imageio import ImageIO
 from java.awt.image import BufferedImage
+from java.awt.geom import AffineTransform
+from java.awt import RenderingHints
 from java.awt import Font
 from java.awt import Color
+from javax.swing import JPanel
 import imghdr
 from scratchtocatrobat import common
 
@@ -89,19 +96,55 @@ def create_font(font_name, size, bold=False, italic=False):
     font = Font.createFont(Font.TRUETYPE_FONT, File(font_path))
     return font.deriveFont(size)
 
-def add_text_to_image(editable_image, text, font, color, x, y):
+def create_JPanel(self):
+    pass
+
+def add_text_to_image(editable_image, text, font, color, x, y, size = 10.0, text_width=None, text_height=None):
     assert isinstance(editable_image, BufferedImage), "No *editable* image (instance of ImageIO) given!"
     assert len(text) > 0, "No or empty text given..."
     assert isinstance(font, Font), "No valid font given! Should be instance of java.awt.Font!"
     assert isinstance(color, Color), "No valid color given! Should be instance of java.awt.Color!"
     assert isinstance(x, float)
     assert isinstance(y, float)
-
+    
+    
     g = editable_image.getGraphics()
     g.setFont(font)
     g.setColor(color)
-    g.drawString(text, x, y)
+    #in case no stretchin
+    if (text_width and text_height) is None:
+        g.drawString(text,x,y)
+        g.dispose()              
+        return editable_image
+        
+    g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+    stretch = AffineTransform()
+    color_tmp =  Color(0, 0, 1, 0.0)
+    g.setColor(color_tmp)
+    g.drawString(text,x,y)
+    g.setColor(color)
+    #note first string is only made to get text width of g
+    #TODO if possible remove first text string
+    
+    original_text_width = g.getFontMetrics(font).stringWidth(text);
+    original_text_height =  g.getFontMetrics(font).getHeight();
+    assert isinstance(original_text_height,int)
+    assert(isinstance(original_text_width,int))
+    #print(original_text_width)
+    #print(original_text_height)
+    
+    if text_width is None:
+        text_width = original_text_width
+    if text_height is None:
+        text_height = original_text_height
+
+    factor_x= float(text_width)/original_text_width
+    factor_y = float(text_height)/original_text_height
+    stretch.scale(factor_x,factor_y)
+    g.setTransform(stretch)
+    g.drawString(text,x,y)                          
     g.dispose()
+                    
     return editable_image
 
 def save_editable_image_as_png_to_disk(editable_image, path, overwrite=False):
