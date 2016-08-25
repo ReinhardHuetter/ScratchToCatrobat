@@ -60,7 +60,7 @@ class ImageProcessingTest(common_testing.BaseTestCase):
             for (bold, italic) in [(False, False), (False, True), (True, False), (True, True)]:
                 font = img_proc.create_font(font_name, 14.0, )
                 assert isinstance(font, java.awt.Font)
-                print(font.getFontName() )  #results to error
+                #print(font.getFontName() )  #results to error
                 assert font.getSize() == 14
                 
 
@@ -71,7 +71,41 @@ class ImageProcessingTest(common_testing.BaseTestCase):
     
         
         
+    def test_can_add_stretched_text_to_editable_image(self):
         
+        dummy_png = self.img_proc_pngfile_paths()[0]
+        #buffered_image = img_proc.read_editable_image_from_disk(dummy_png)
+        #assert isinstance(buffered_image, java.awt.image.BufferedImage)
+        for font_name in self._allowed_font_names:
+            font = img_proc.create_font(font_name, 14.0, bold=False, italic=False)
+            # check whether the left-outline of letter "H" in "Hello world" is NOT present in the image!
+            test_colors = { Color.BLUE: (0, 0, 255), Color.RED: (255, 0, 0), Color.WHITE: (255, 255, 255), Color.BLACK: (0,0,0) }
+            for (color, value) in test_colors.iteritems():
+                buffered_image = img_proc.read_editable_image_from_disk(dummy_png)
+                assert isinstance(buffered_image, java.awt.image.BufferedImage)
+                #test1 8 pixel down
+                for i in range(0, 15):
+                    rgb = buffered_image.getRGB(15, i)               
+                    red = rgb >> 16 & int("0x000000FF", 16)
+                    green = rgb >> 8 & int("0x000000FF", 16)
+                    blue = rgb & int("0x000000FF", 16)
+                    alpha = (rgb>>24) & 0xff
+                    assert red == 0 and green == 0 and blue == 0 and alpha == 0
+                buffered_image = img_proc.add_text_to_image(buffered_image, "Hello world!", font, color, 10.0, 10.0, 10.0, 95, 30)
+                #buffered_image = img_proc.add_text_to_image(buffered_image, "Franz ist hier!?", font, Color.BLUE,10.0, 2.0)
+                # the left-outline of letter "H" in "Hello world" must NOW appear in the image!
+                for i in range(0, 15):
+                    rgb = buffered_image.getRGB(15, i)
+                    red = rgb >> 16 & int("0x000000FF", 16)
+                    green = rgb >> 8 & int("0x000000FF", 16)
+                    blue = rgb & int("0x000000FF", 16)
+                    alpha = (rgb>>24) & 0xff
+                    
+                    if font_name == self._allowed_font_names[3]: #helvetica
+                        assert red == value[0] and green == value[1] and blue == value[2] and alpha == 255
+                    
+                        
+               
         
     def test_can_add_text_to_editable_image(self):
         
@@ -227,7 +261,7 @@ class ImageProcessingTest(common_testing.BaseTestCase):
             blue = rgb & int("0x000000FF", 16)
             alpha = (rgb>>24) & 0xff
             assert red == 0 and green == 0 and blue == 0 and alpha == 0
-        buffered_image = img_proc.add_text_to_image(buffered_image, "Hello world!", helvetica_font, Color.BLUE, 10.0, 10.0, 10.0, 120, 30)
+        buffered_image = img_proc.add_text_to_image(buffered_image, "Hello world!", helvetica_font, Color.BLUE, 10.0, 10.0, 10.0, 95, 30)
         #buffered_image = img_proc.add_text_to_image(buffered_image, "Franz ist hier!?", marker_font, Color.BLUE,10.0, 20.0)
         #buffered_image = img_proc.add_text_to_image(buffered_image, "iloveKF", donegal_font, Color.GREEN,10.0, 32.0)
 

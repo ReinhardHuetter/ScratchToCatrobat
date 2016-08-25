@@ -104,8 +104,8 @@ def add_text_to_image(editable_image, text, font, color, x, y, size = 10.0, text
     assert len(text) > 0, "No or empty text given..."
     assert isinstance(font, Font), "No valid font given! Should be instance of java.awt.Font!"
     assert isinstance(color, Color), "No valid color given! Should be instance of java.awt.Color!"
-    assert isinstance(x, float)
-    assert isinstance(y, float)
+    assert isinstance(x, float), "No valid number given! Should be a float value"
+    assert isinstance(y, float), "No valid number given! Should be a float value"
     
     
     g = editable_image.getGraphics()
