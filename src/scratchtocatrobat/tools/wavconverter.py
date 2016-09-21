@@ -24,7 +24,7 @@ import subprocess
 from distutils.spawn import find_executable
 from java.lang import System
 
-from scratchtocatrobat import logger
+from scratchtocatrobat.tools import logger
 
 _log = logger.log
 
@@ -50,8 +50,16 @@ def is_android_compatible_wav(file_path):
     return _SOX_OUTPUT_PCM_PATTERN.search(info_output) is not None
 
 
-def convert_to_android_compatible_wav(input_path, output_path):
+def convert_to_android_compatible_wav(input_path):
+    output_path = input_path.replace(".wav", "_converted.wav")
     _log.info("      converting '%s' to Pocket Code compatible wav '%s'", input_path, output_path)
-    # '-R' option ensures deterministic output
-    subprocess.check_call([_checked_sox_path(), input_path, "-R", "-t", "wavpcm", "-e", "unsigned-integer", output_path])
 
+    if os.path.exists(output_path):
+        _log.info("      nothing to do: '%s' already exists", output_path)
+        return output_path
+
+    # '-R' option ensures deterministic output
+    subprocess.check_call([_checked_sox_path(), input_path, "-R", "-t", "wavpcm",
+                           "-e", "unsigned-integer", output_path])
+    assert os.path.exists(output_path)
+    return output_path

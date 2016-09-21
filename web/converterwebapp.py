@@ -1,5 +1,5 @@
 #  ScratchToCatrobat: A tool for converting Scratch projects into Catrobat programs.
-#  Copyright (C) 2013-2015 The Catrobat Team
+#  Copyright (C) 2013-2016 The Catrobat Team
 #  (<http://developer.catrobat.org/credits>)
 #
 #  This program is free software: you can redistribute it and/or modify
@@ -39,188 +39,68 @@
 """
 
 import logging
-import tornado.escape #@UnresolvedImport
-import tornado.web #@UnresolvedImport
-import tornado.websocket #@UnresolvedImport
-from tornado import httputil, httpclient #@UnresolvedImport
-from bs4 import BeautifulSoup #@UnresolvedImport
+import json
+import tornado.web
+from tornado import httputil, httpclient
+from bs4 import BeautifulSoup
 import os.path
-import redis #@UnresolvedImport
-from command import get_command, InvalidCommand, Job, update_jobs_info_on_listening_clients
-import jobmonitorprotocol as jobmonprot
-from tornado.web import HTTPError #@UnresolvedImport
-import ast, sys
+from tornado.web import HTTPError
+import sys
 from datetime import datetime as dt, timedelta
-import converterwebsocketprotocol as protocol
-from jobmonitorprotocol import NotificationType
-from scratchtocatrobat import scratchwebapi
-from scratchtocatrobat.scratchwebapi import ScratchProjectVisibiltyState
-
 sys.path.append(os.path.join(os.path.realpath(os.path.dirname(__file__)), "..", "src"))
+from scratchtocatrobat.scratch import scratchwebapi
+from scratchtocatrobat.scratch.scratchwebapi import ScratchProjectVisibiltyState
 from scratchtocatrobat.tools import helpers
+import helpers as webhelpers
+import redis
 
 _logger = logging.getLogger(__name__)
 
+REDIS_HOST = helpers.config.get("REDIS", "host")
+REDIS_PORT = int(helpers.config.get("REDIS", "port"))
+REDIS_PASSWORD = helpers.config.get("REDIS", "password")
+REDIS_CONNECTION = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, encoding='utf-8')
+
 CATROBAT_FILE_EXT = helpers.config.get("CATROBAT", "file_extension")
-CONVERTER_API_SETTINGS = helpers.config.items_as_dict("CONVERTER_API")
-SCRATCH_PROJECT_BASE_URL = helpers.config.get("SCRATCH_API", "http_delay")
 HTTP_RETRIES = int(helpers.config.get("SCRATCH_API", "http_retries"))
 HTTP_BACKOFF = int(helpers.config.get("SCRATCH_API", "http_backoff"))
 HTTP_DELAY = int(helpers.config.get("SCRATCH_API", "http_delay"))
 HTTP_TIMEOUT = int(helpers.config.get("SCRATCH_API", "http_timeout"))
 HTTP_USER_AGENT = helpers.config.get("SCRATCH_API", "user_agent")
 SCRATCH_PROJECT_BASE_URL = helpers.config.get("SCRATCH_API", "project_base_url")
+SCRATCH_PROJECT_REMIX_TREE_URL_TEMPLATE = helpers.config.get("SCRATCH_API", "project_remix_tree_url_template")
+SCRATCH_PROJECT_MAX_NUM_REMIXES_TO_INCLUDE = int(helpers.config.get("CONVERTER_API", "max_num_remixes_to_include"))
 
-# TODO: check if redis is available => error!
-_redis_conn = redis.Redis() #'127.0.0.1', 6789) #, password='secret')
-
-
-class Context(object):
-    def __init__(self, handler, redis_connection, jobmonitorserver_settings):
-        self.handler = handler
-        self.redis_connection = redis_connection
-        self.jobmonitorserver_settings = jobmonitorserver_settings
-
-class ConverterWebSocketHandler(tornado.websocket.WebSocketHandler):
-
-    client_ID_open_sockets_map = {}
-
-    def get_compression_options(self):
-        return {} # Non-None enables compression with default options.
-
-    def set_client_ID(self, client_ID):
-        cls = self.__class__
-        if client_ID not in cls.client_ID_open_sockets_map:
-            cls.client_ID_open_sockets_map[client_ID] = []
-        cls.client_ID_open_sockets_map[client_ID].append(self)
-
-    @classmethod
-    def notify(cls, msg_type, args):
-        # jobID is scratch project ID in this case
-        scratch_project_ID = args[jobmonprot.Request.ARGS_JOB_ID]
-        REDIS_CLIENT_PROJECT_KEY = "clientsOfProject#{}".format(scratch_project_ID)
-        REDIS_PROJECT_KEY = "project#{}".format(scratch_project_ID)
-        job = Job.from_redis(_redis_conn, REDIS_PROJECT_KEY)
-        old_status = job.status
-        if job == None:
-            _logger.error("Cannot find job #{}".format(scratch_project_ID))
-            return
-        if msg_type == NotificationType.JOB_STARTED:
-            job.title = args[jobmonprot.Request.ARGS_TITLE]
-            job.status = Job.Status.RUNNING
-        elif msg_type == NotificationType.JOB_FAILED:
-            _logger.warn("Job failed! Exception Args: %s", args)
-            job.status = Job.Status.FAILED
-        elif msg_type == NotificationType.JOB_OUTPUT:
-            if job.output == None: job.output = ""
-            for line in args[jobmonprot.Request.ARGS_LINES]:
-                job.output += line
-        elif msg_type == NotificationType.JOB_PROGRESS:
-            job.progress = args[jobmonprot.Request.ARGS_PROGRESS]
-        elif msg_type == NotificationType.JOB_FINISHED:
-            _logger.info("Job #{} finished, waiting for file transfer".format(scratch_project_ID))
-        elif msg_type == NotificationType.FILE_TRANSFER_FINISHED:
-            job.progress = 100.0
-            job.status = Job.Status.FINISHED
-        if not job.save_to_redis(_redis_conn, REDIS_PROJECT_KEY):
-            _logger.info("Unable to update job status!")
-            return
-
-        # inform all clients if status or progress changed
-        if old_status != job.status or msg_type == NotificationType.JOB_PROGRESS:
-            update_jobs_info_on_listening_clients(Context(None, _redis_conn, None))
-
-        # find listening clients
-        # TODO: cache this...
-        clients_of_project = _redis_conn.get(REDIS_CLIENT_PROJECT_KEY)
-        if clients_of_project == None:
-            _logger.warn("WTH?! No listening clients stored!")
-            return
-
-        clients_of_project = ast.literal_eval(clients_of_project)
-        num_clients_of_project = len(clients_of_project)
-        _logger.debug("There %s %d registered client%s." % \
-                      ("is" if num_clients_of_project == 1 else "are", \
-                       num_clients_of_project, "s" if num_clients_of_project != 1 else ""))
-        listening_clients = [cls.client_ID_open_sockets_map[int(client_ID)] for client_ID in clients_of_project if int(client_ID) in cls.client_ID_open_sockets_map]
-        _logger.debug("There are %d active clients listening on this job." % len(listening_clients))
-
-        for socket_handlers in listening_clients:
-            if msg_type == NotificationType.JOB_STARTED:
-                message = protocol.JobRunningMessage(scratch_project_ID)
-            elif msg_type == NotificationType.JOB_OUTPUT:
-                message = protocol.JobOutputMessage(scratch_project_ID, args[jobmonprot.Request.ARGS_LINES])
-            elif msg_type == NotificationType.JOB_PROGRESS:
-                message = protocol.JobProgressMessage(scratch_project_ID, args[jobmonprot.Request.ARGS_PROGRESS])
-            elif msg_type == NotificationType.JOB_FINISHED:
-                message = protocol.JobFinishedMessage(scratch_project_ID)
-            elif msg_type == NotificationType.FILE_TRANSFER_FINISHED:
-                download_url = "/download?id=" + scratch_project_ID
-                message = protocol.JobDownloadMessage(scratch_project_ID, download_url)
-            elif msg_type == NotificationType.JOB_FAILED:
-                message = protocol.JobFailedMessage(scratch_project_ID)
-            else:
-                _logger.warn("IGNORING UNKNOWN MESSAGE")
-                return
-            for handler in socket_handlers:
-                handler.send_message(message)
-
-    def on_close(self):
-        cls = self.__class__
-        _logger.info("Closing websocket")
-        for (client_ID, open_sockets) in cls.client_ID_open_sockets_map.iteritems():
-            if self in open_sockets:
-                open_sockets.remove(self)
-                if len(open_sockets) == 0:
-                    del cls.client_ID_open_sockets_map[client_ID]
-                else:
-                    cls.client_ID_open_sockets_map[client_ID] = open_sockets
-                _logger.info("Found websocket and closed it")
-                return # break out of loop => limit is 1 socket/clientID
-
-    def send_message(self, message):
-        assert isinstance(message, protocol.Message)
-        _logger.debug("Sending %s %r to %d", message.__class__.__name__,
-                      message.as_dict(), id(self))
-        try:
-            self.write_message(tornado.escape.json_encode(message.as_dict()))
-        except:
-            _logger.error("Error sending message", exc_info=True)
-
-    def on_message(self, message):
-        _logger.debug("Received message %r", message)
-        data = tornado.escape.json_decode(message)
-        args = {}
-        if protocol.JsonKeys.Request.is_valid(data):
-            command = get_command(data[protocol.JsonKeys.Request.CMD])
-            args = protocol.JsonKeys.Request.extract_allowed_args(data[protocol.JsonKeys.Request.ARGS])
-        else:
-            command = InvalidCommand()
-        # TODO: when client ID is given => check if it belongs to socket handler!
-        redis_conn = _redis_conn
-        ctxt = Context(self, redis_conn, self.application.settings["jobmonitorserver"])
-        _logger.info("Executing command %s", command.__class__.__name__)
-        self.send_message(command.execute(ctxt, args))
 
 class _MainHandler(tornado.web.RequestHandler):
     app_data = {}
     def get(self):
         self.render("index.html", data=_MainHandler.app_data)
 
+
 class _DownloadHandler(tornado.web.RequestHandler):
     def get(self):
-        # TODO: support head request!
-        scratch_project_id_string = self.get_query_argument("id", default=None)
-        if scratch_project_id_string == None or not scratch_project_id_string.isdigit():
+        job_ID_string = self.get_query_argument("job_id", default=None)
+        client_ID_string = self.get_query_argument("client_id", default=None)
+
+        # TODO: use validation function instead...
+        if job_ID_string == None or not job_ID_string.isdigit() \
+        or client_ID_string == None or not client_ID_string.isdigit():
             raise HTTPError(404)
+
+        job_ID = int(job_ID_string)
+        client_ID = int(client_ID_string)
+
         file_dir = self.application.settings["jobmonitorserver"]["download_dir"]
-        file_name = scratch_project_id_string + CATROBAT_FILE_EXT
+        file_name = job_ID_string + CATROBAT_FILE_EXT
         file_path = "%s/%s" % (file_dir, file_name)
+
         if not file_name or not os.path.exists(file_path):
             raise HTTPError(404)
+
         file_size = os.path.getsize(file_path)
         self.set_header('Content-Type', 'application/zip')
-        self.set_header('Content-Disposition', 'attachment; filename=%s' % file_name)
+        self.set_header('Content-Disposition', 'attachment; filename="%s"' % file_name)
         with open(file_path, "rb") as f:
             range_header = self.request.headers.get("Range")
             request_range = None
@@ -244,32 +124,18 @@ class _DownloadHandler(tornado.web.RequestHandler):
                         self.write(write_buffer)
                     else:
                         self.finish()
+                        _logger.info("Download of job {} finished (client: {})".format(job_ID, client_ID))
                         return
             except:
                 raise HTTPError(404)
+
         raise HTTPError(500)
-
-class _ResponseBeautifulSoupDocumentWrapper(scratchwebapi.ResponseDocumentWrapper):
-    def select_first_as_text(self, query):
-        result = self.wrapped_document.select(query)
-        if result is None or not isinstance(result, list) or len(result) == 0:
-            return None
-        return result[0].get_text()
-
-    def select_all_as_text_list(self, query):
-        result = self.wrapped_document.select(query)
-        if result is None:
-            return None
-        return [element.get_text() for element in result if element is not None]
-
-    def select_attributes_as_text_list(self, query, attribute_name):
-        result = self.wrapped_document.select(query)
-        if result is None:
-            return None
-        return [element[attribute_name] for element in result if element is not None]
 
 
 class ProjectDataResponse(object):
+
+    DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
     def __init__(self):
         self.accessible = True
         self.visibility_state = ScratchProjectVisibiltyState.UNKNOWN
@@ -277,17 +143,23 @@ class ProjectDataResponse(object):
         self.valid_until = None
 
     def as_dict(self):
+        cls = self.__class__
         return {
             "accessible": self.accessible,
             "visibility": self.visibility_state,
             "projectData": self.project_data,
-            "validUntil": None if not self.valid_until else self.valid_until.strftime("%Y-%m-%d %H:%M:%S")
+            "validUntil": None if not self.valid_until else self.valid_until.strftime(cls.DATETIME_FORMAT)
         }
 
 
 class _ProjectHandler(tornado.web.RequestHandler):
-    response_cache = {}
-    CACHE_ENTRY_VALID_FOR = 600 # 10 minutes (in seconds)
+    RESPONSE_CACHE = {}
+    CACHE_ENTRY_VALID_FOR = 1800 # 30 minutes (in seconds)
+    IN_PROGRESS_FUTURE_MAP = {}
+
+    def send_response_data(self, response_data):
+        self.write(json.dumps(response_data).decode('unicode-escape').encode('utf8'))
+        return
 
     @tornado.gen.coroutine
     def get(self, project_id = None):
@@ -296,22 +168,46 @@ class _ProjectHandler(tornado.web.RequestHandler):
         # ------------------------------------------------------------------------------------------
         if project_id is None:
             # TODO: automatically update featured projects...
-            self.write({ "results": CONVERTER_API_SETTINGS["featured_projects"] })
+            self.write({ "results": webhelpers.FEATURED_SCRATCH_PROGRAMS })
             return
 
         # ------------------------------------------------------------------------------------------
         # Project details HTTP-request
         # ------------------------------------------------------------------------------------------
-        cls = self.__class__
-        if project_id in cls.response_cache and dt.now() <= cls.response_cache[project_id].valid_until:
-            _logger.info("Cache hit for project ID {}".format(project_id))
-            self.write(cls.response_cache[project_id].as_dict())
+        project_id = int(project_id)
+        if not webhelpers.is_valid_scratch_project_ID(project_id):
+            x_real_ip = self.request.headers.get("X-Real-IP")
+            _logger.error("Invalid project ID given: {}, IP: {}"
+                          .format(project_id, x_real_ip or self.request.remote_ip))
+            self.send_response_data({})
             return
 
+        cls = self.__class__
+
+        scratch_project_url = SCRATCH_PROJECT_BASE_URL + str(project_id)
+        scratch_project_remix_tree_url = SCRATCH_PROJECT_REMIX_TREE_URL_TEMPLATE.format(project_id)
+
+        if project_id in cls.RESPONSE_CACHE:
+            response_data, valid_until = cls.RESPONSE_CACHE[project_id]
+            if dt.now() <= valid_until:
+                _logger.info("Cache hit for project ID {}".format(project_id))
+                self.send_response_data(response_data)
+                return
+
         try:
-            scratch_project_url = SCRATCH_PROJECT_BASE_URL + str(project_id)
-            _logger.info("Fetching project info from: {}".format(scratch_project_url))
-            http_response = yield self.application.async_http_client.fetch(scratch_project_url)
+            if project_id in cls.IN_PROGRESS_FUTURE_MAP:
+                futures = cls.IN_PROGRESS_FUTURE_MAP[project_id]
+                _logger.info("SHARED FUTURE!")
+                return
+            else:
+                async_http_client = self.application.async_http_client
+                _logger.info("Fetching project and remix info from: {} and {} simultaneously"
+                             .format(scratch_project_url, scratch_project_remix_tree_url))
+                futures = [async_http_client.fetch(scratch_project_url),
+                           async_http_client.fetch(scratch_project_remix_tree_url)]
+                cls.IN_PROGRESS_FUTURE_MAP[project_id] = futures
+
+            project_html_content, remix_tree_json_data = yield futures
         except tornado.httpclient.HTTPError, e:
             _logger.warn("Unable to download project's web page: HTTP-Status-Code: " + str(e.code))
             response = ProjectDataResponse()
@@ -320,18 +216,22 @@ class _ProjectHandler(tornado.web.RequestHandler):
                 # (e.g. projects that have been removed in the meanwhile...)
                 response.accessible = False
                 response.valid_until = dt.now() + timedelta(seconds=cls.CACHE_ENTRY_VALID_FOR)
-                cls.response_cache[project_id] = response
-
-            self.write(response.as_dict())
+                cls.RESPONSE_CACHE[project_id] = (response.as_dict(), response.valid_until)
+                if project_id in cls.IN_PROGRESS_FUTURE_MAP: del cls.IN_PROGRESS_FUTURE_MAP[project_id]
+            self.send_response_data(response.as_dict())
+            return
+        except Exception, e:
+            _logger.warn("Unable to download project's web page: " + str(e))
+            self.send_response_data(ProjectDataResponse().as_dict())
             return
 
-        if http_response is None or http_response.body is None or not isinstance(http_response.body, (str, unicode)):
+        if project_html_content is None or project_html_content.body is None \
+        or not isinstance(project_html_content.body, (str, unicode)):
             _logger.error("Unable to download web page of project: Invalid or empty HTML-content!")
-            self.write(ProjectDataResponse().as_dict())
+            self.send_response_data(ProjectDataResponse().as_dict())
             return
 
-        #body = re.sub("(.*" + re.escape("<li>") + r'\s*' + re.escape("<div class=\"project thumb\">") + r'.*' + re.escape("<span class=\"owner\">") + r'.*' + re.escape("</span>") + r'\s*' + ")" + "(" + re.escape("</li>.*") + ")", r'\1</div>\2', http_response.body)
-        document = _ResponseBeautifulSoupDocumentWrapper(BeautifulSoup(http_response.body, b'html5lib'))
+        document = webhelpers.ResponseBeautifulSoupDocumentWrapper(BeautifulSoup(project_html_content.body.decode('utf-8', 'ignore'), b'html5lib'))
         visibility_state = scratchwebapi.extract_project_visibilty_state_from_document(document)
         response = ProjectDataResponse()
         response.accessible = True
@@ -340,32 +240,53 @@ class _ProjectHandler(tornado.web.RequestHandler):
 
         if visibility_state != ScratchProjectVisibiltyState.PUBLIC:
             _logger.warn("Not allowed to access non-public scratch-project!")
-            cls.response_cache[project_id] = response
-            self.write(response.as_dict())
+            cls.RESPONSE_CACHE[project_id] = (response.as_dict(), response.valid_until)
+            if project_id in cls.IN_PROGRESS_FUTURE_MAP: del cls.IN_PROGRESS_FUTURE_MAP[project_id]
+            self.send_response_data(response.as_dict())
             return
 
-        project_info = scratchwebapi.extract_project_details_from_document(document)
+        project_info = scratchwebapi.extract_project_details_from_document(document, escape_quotes=True)
         if project_info is None:
             _logger.error("Unable to parse project-info from web page: Invalid or empty HTML-content!")
-            self.write(response.as_dict())
+            self.send_response_data(response.as_dict())
             return
 
-        response.project_data = project_info.as_dict()
-        cls.response_cache[project_id] = response
-        self.write(response.as_dict())
-        return
+        remixed_program_info = []
+        total_num_remixes = 0
+        try:
+            tree_data_string = unicode(remix_tree_json_data.body)
+            tree_data = json.loads(tree_data_string)
+            scratch_program_data = tree_data[str(project_id)]
+            response.accessible = scratch_program_data["is_published"]
+            response.visibility_state = ScratchProjectVisibiltyState.PUBLIC if scratch_program_data["visibility"] == "visible" else ScratchProjectVisibiltyState.PRIVATE
+            remixed_program_info = scratchwebapi.extract_project_remixes_from_data(tree_data, project_id)
+            total_num_remixes = len(remixed_program_info)
+            remixed_program_info = remixed_program_info[:SCRATCH_PROJECT_MAX_NUM_REMIXES_TO_INCLUDE]
+        except:
+            _logger.error("Unable to decode JSON data of project: Invalid or empty JSON-content!")
+        finally:
+            response.project_data = project_info.as_dict()
+            response_data = response.as_dict()
+            response_data["projectData"]["total_num_remixes"] = total_num_remixes
+            response_data["projectData"]["remixes"] = remixed_program_info
+            cls.RESPONSE_CACHE[project_id] = (response_data, response.valid_until)
+            if project_id in cls.IN_PROGRESS_FUTURE_MAP: del cls.IN_PROGRESS_FUTURE_MAP[project_id]
+            self.send_response_data(response_data)
 
 
 class ConverterWebApp(tornado.web.Application):
     def __init__(self, **settings):
+        from websocketserver import websockethandler
         self.settings = settings
+        websockethandler.ConverterWebSocketHandler.REDIS_CONNECTION = REDIS_CONNECTION
         handlers = [
             (r"/", _MainHandler),
             (r"/download", _DownloadHandler),
-            (r"/convertersocket", ConverterWebSocketHandler),
+            (r"/convertersocket", websockethandler.ConverterWebSocketHandler),
             (r"/api/v1/projects/?", _ProjectHandler),
             (r"/api/v1/projects/(\d+)/?", _ProjectHandler),
         ]
         httpclient.AsyncHTTPClient.configure(None, defaults=dict(user_agent=HTTP_USER_AGENT))
         self.async_http_client = httpclient.AsyncHTTPClient()
         tornado.web.Application.__init__(self, handlers, **settings)
+
