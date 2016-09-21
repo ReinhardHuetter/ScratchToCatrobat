@@ -98,7 +98,6 @@ def create_JPanel(self):
 
 def add_text_to_image(editable_image, text, font, color, x, y, size = 10.0, text_width=None, text_height=None):
 
-def add_text_to_image(editable_image, text, font, color, x, y, width=None, height=None):
     assert isinstance(editable_image, BufferedImage), "No *editable* image (instance of ImageIO) given!"
     assert len(text) > 0, "No or empty text given..."
     assert isinstance(font, Font), "No valid font given! Should be instance of java.awt.Font!"
